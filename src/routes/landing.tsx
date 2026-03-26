@@ -1,493 +1,302 @@
 import { Hono } from 'hono'
 import { raw } from 'hono/html'
 import type { Bindings } from '../types'
-import { getRingOrder, getActiveMembers } from '../data'
+import { getActiveMembers } from '../data'
 import Layout from '../templates/Layout'
-import { CANADA_VIEWBOX, CANADA_PATH, projectToSvg } from '../lib/canada-map'
-import { getCityCoord } from '../lib/city-coords'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 app.get('/', async (c) => {
   c.header('Cache-Control', 'public, max-age=300')
-  const [order, active] = await Promise.all([
-    getRingOrder(c.env.WEBRING),
-    getActiveMembers(c.env.WEBRING),
-  ])
-
-  const activeSlugs = new Set(active.map((m) => m.slug))
-  const ring = order.filter((s) => activeSlugs.has(s))
-  const first = ring[0]
-  const last = ring[ring.length - 1]
-
-  const memberDots = active
-    .map((m) => {
-      const coord = (m.lat != null && m.lng != null)
-        ? { lat: m.lat, lng: m.lng }
-        : (m.city ? getCityCoord(m.city) : null)
-      if (!coord) return null
-      const pos = projectToSvg(coord.lat, coord.lng)
-      return { ...m, svgX: pos.x, svgY: pos.y }
-    })
-    .filter((m): m is NonNullable<typeof m> => m !== null)
+  const active = await getActiveMembers(c.env.WEBRING)
 
   return c.html(
-    <Layout fullHeight>
+    <Layout fullHeight hideChrome>
       {raw(`<style>
-        .landing { display: flex; flex: 1; min-height: 0; }
-        .landing-left {
-          flex: 0 0 42%;
-          padding: 2.5rem 2.5rem 1.5rem;
+        html, body { color-scheme: light; background: #fff; color: #000; }
+        .landing {
           display: flex;
-          flex-direction: column;
-          border-right: 1px solid #e0ddd8;
+          flex: 1;
+          min-height: 0;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
-        .landing-headline {
-          font-size: 2rem;
+
+        /* ── Left column — single CSS grid ── */
+        .landing-left {
+          flex: 0 0 47%;
+          display: grid;
+          grid-template-rows:
+            auto          /* title */
+            auto 1fr      /* about header, about body (open) */
+            auto 0fr      /* members header, members body */
+            auto 0fr;     /* join header, join body */
+          transition: grid-template-rows 0.4s ease;
+          align-content: start;
+          border-left: 2px solid #000;
+          border-right: 2px solid #000;
+        }
+
+        /* ── Site title ── */
+        .landing-title {
+          font-size: 3.5rem;
           font-weight: 700;
-          line-height: 1.15;
           letter-spacing: -0.03em;
-          margin-bottom: 0.6rem;
+          padding: 1.5rem 2rem;
+          line-height: 1.1;
+          color: #000;
+          text-decoration: none;
+          display: block;
         }
-        .landing-tagline {
-          font-size: 0.9rem;
-          color: #888;
-          margin-bottom: 1rem;
-          line-height: 1.5;
+
+        /* ── Accordion headers ── */
+        .accordion-header {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1.1rem 2rem;
+          background: none;
+          border: none;
+          border-top: 2px solid #000;
+          cursor: pointer;
+          font-family: 'Inter', sans-serif;
+          font-size: 2.8rem;
+          font-weight: 700;
+          letter-spacing: -0.03em;
+          color: #000;
+          text-align: left;
+          line-height: 1.15;
         }
-        .ring-widget {
+        .accordion-toggle {
+          flex-shrink: 0;
+          width: 36px;
+          height: 36px;
+          border: 1.5px solid #000;
+          border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 1rem;
-          font-family: 'Space Mono', monospace;
-          font-size: 0.75rem;
-          color: #999;
-          padding: 0.7rem 0;
-          margin-bottom: 1.75rem;
-          border-bottom: 1px solid #e0ddd8;
         }
-        .ring-widget a { color: #c22; text-decoration: none; }
-        .ring-widget a:hover { opacity: 0.7; }
-        .ring-dot { color: #ddd; }
-        .members-label {
-          font-family: 'Space Mono', monospace;
-          font-size: 0.7rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #aaa;
-          margin-bottom: 0.6rem;
+        .accordion-toggle svg {
+          width: 16px;
+          height: 16px;
+          stroke: #000;
+          stroke-width: 2;
+          fill: none;
         }
+
+        /* ── Accordion bodies ── */
+        .accordion-body {
+          overflow: hidden;
+          min-height: 0;
+        }
+        .accordion-body-inner {
+          padding: 0 2rem 1.8rem;
+        }
+        .accordion-about {
+          font-size: 1.15rem;
+          font-weight: 400;
+          line-height: 1.55;
+          color: #000;
+          max-width: 42ch;
+        }
+
+        /* ── Members list ── */
         .member-list { list-style: none; padding-left: 0; }
         .member-list li {
-          padding: 0.55rem 0;
-          border-bottom: 1px solid #eee;
+          padding: 0.6rem 0;
+          border-bottom: 1px solid #ddd;
           display: flex;
           justify-content: space-between;
           align-items: baseline;
         }
-        .member-list li:first-child { border-top: 1px solid #eee; }
+        .member-list li:first-child { border-top: 1px solid #ddd; }
         .member-list-name {
-          font-size: 0.92rem;
+          font-size: 1rem;
           font-weight: 600;
-          color: #1a1a1a;
+          color: #000;
           text-decoration: none;
         }
         .member-list-name:hover { color: #c22; }
         .member-list-meta {
-          font-family: 'Space Mono', monospace;
-          font-size: 0.7rem;
-          color: #aaa;
+          font-size: 0.8rem;
+          font-weight: 400;
+          color: #888;
         }
-        .join-block {
-          margin-top: 1.5rem;
-          padding: 1rem 1.1rem;
-          background: #f3f1ed;
-          border-radius: 5px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+
+        /* ── Join section ── */
+        .join-text {
+          font-size: 1.05rem;
+          line-height: 1.55;
+          color: #000;
+          margin-bottom: 1rem;
         }
-        .join-block-text { font-size: 0.82rem; color: #666; }
-        .join-block-text strong { color: #1a1a1a; font-weight: 600; }
-        .join-block-link {
-          font-family: 'Space Mono', monospace;
-          font-size: 0.75rem;
+        .join-link {
+          font-size: 0.9rem;
+          font-weight: 700;
           color: #c22;
           text-decoration: none;
-          font-weight: 700;
         }
-        .join-block-link:hover { opacity: 0.7; }
+        .join-link:hover { opacity: 0.7; }
+
+        /* ── Right column ── */
         .landing-right {
           flex: 1;
           display: flex;
           flex-direction: column;
-          padding: 1.25rem 1.5rem;
-          gap: 1rem;
-        }
-        .landing-right-placeholder {
-          flex: 1;
-          background: #f0eee9;
-          border-radius: 4px;
-          display: flex;
           align-items: center;
           justify-content: center;
-          font-family: 'Space Mono', monospace;
-          font-size: 0.75rem;
-          color: #bbb;
-        }
-        .flag-container {
-          flex: 1.1;
-          border-radius: 4px;
-          overflow: hidden;
           position: relative;
         }
-        .flag-canvas {
-          width: 100%;
-          height: 100%;
+        .landing-right img {
+          max-width: 300px;
+          width: 55%;
+          height: auto;
           display: block;
         }
-        .flag-static {
+        .drag-hint {
+          position: absolute;
+          bottom: 2rem;
           display: flex;
-          width: 100%;
-          height: 100%;
-        }
-        .flag-red { flex: 0 0 25%; background: #d42c2c; }
-        .flag-white {
-          flex: 0 0 50%;
-          background: #fff;
-          display: flex;
+          flex-direction: column;
           align-items: center;
-          justify-content: center;
+          gap: 0.3rem;
+          font-family: 'Inter', sans-serif;
+          font-size: 0.8rem;
+          font-weight: 500;
+          color: #000;
+          letter-spacing: 0.01em;
         }
-        .flag-white svg { width: 35%; height: auto; fill: #d42c2c; }
-        @media (prefers-reduced-motion: reduce) {
-          .flag-canvas { display: none; }
+        .drag-hint-arrow {
+          font-size: 1rem;
         }
-        @media (prefers-reduced-motion: no-preference) {
-          .flag-static { display: none; }
-        }
-        .map-container {
-          flex: 1;
-          background: #f0eee9;
-          border-radius: 4px;
-          position: relative;
-          overflow: hidden;
-        }
-        .map-grid {
-          position: absolute;
-          inset: 0;
-          background-image:
-            linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
-          background-size: 24px 24px;
-        }
-        .map-svg { width: 100%; height: 100%; }
-        .map-outline { fill: none; stroke: #ddd; stroke-width: 1.5; }
-        .map-dot { fill: #d42c2c; cursor: pointer; }
-        .map-dot:hover { fill: #a11; }
-        .map-glow { fill: rgba(212, 44, 44, 0.12); pointer-events: none; }
-        .map-coord {
-          position: absolute;
-          font-family: 'Space Mono', monospace;
-          font-size: 0.6rem;
-          color: #ccc;
-        }
-        .map-coord-tl { top: 8px; left: 10px; }
-        .map-coord-br { bottom: 8px; right: 10px; }
-        .map-tooltip {
-          position: absolute;
-          background: #1a1a1a;
-          color: #fff;
-          padding: 0.3rem 0.6rem;
-          border-radius: 4px;
-          font-family: 'Space Mono', monospace;
-          font-size: 0.7rem;
-          pointer-events: none;
-          opacity: 0;
-          transition: opacity 0.15s;
-          white-space: nowrap;
-          z-index: 10;
-        }
-        .map-tooltip.visible { opacity: 1; }
-        @media (prefers-color-scheme: dark) {
-          .landing-left { border-right-color: #2a2927; }
-          .landing-tagline { color: #777; }
-          .ring-widget { border-bottom-color: #2a2927; color: #555; }
-          .ring-widget a { color: #f55; }
-          .ring-dot { color: #333; }
-          .members-label { color: #555; }
-          .member-list li { border-bottom-color: #2a2927; }
-          .member-list li:first-child { border-top-color: #2a2927; }
-          .member-list-name { color: #e0ddd8; }
-          .member-list-name:hover { color: #f55; }
-          .member-list-meta { color: #555; }
-          .join-block { background: #1a1918; }
-          .join-block-text { color: #888; }
-          .join-block-text strong { color: #e0ddd8; }
-          .join-block-link { color: #f55; }
-          .landing-right-placeholder { background: #1a1918; color: #444; }
-          .map-container { background: #1a1918; }
-          .map-grid {
-            background-image:
-              linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-          }
-          .map-outline { stroke: #333; }
-          .map-coord { color: #333; }
-          .map-tooltip { background: #e0ddd8; color: #1a1a1a; }
-          .flag-white { background: #f5f5f5; }
-        }
-        @media (max-width: 1023px) {
-          .landing-left { flex: 0 0 38%; padding: 2rem 1.5rem 1.5rem; }
-          .landing-right { padding: 1rem; }
-        }
+
+        /* ── Responsive ── */
         @media (max-width: 767px) {
           .landing { flex-direction: column; height: auto; }
           .landing-left {
-            flex: none;
+            border-left: none;
             border-right: none;
-            border-bottom: 1px solid #e0ddd8;
-            padding: 1.5rem;
+            border-bottom: 2px solid #000;
+            /* all bodies collapsed on mobile by default, JS overrides */
+            grid-template-rows:
+              auto
+              auto 1fr
+              auto 0fr
+              auto 0fr !important;
           }
+          .landing-title { font-size: 2.2rem; padding: 1.2rem 1.5rem; }
+          .accordion-header { font-size: 1.8rem; padding: 1rem 1.5rem; }
+          .accordion-body-inner { padding: 0 1.5rem 1.5rem; }
+          .accordion-toggle { width: 30px; height: 30px; }
+          .accordion-toggle svg { width: 14px; height: 14px; }
           .landing-right {
             flex: none;
-            padding: 1rem;
-            gap: 0.75rem;
+            min-height: 50vh;
           }
-          .flag-container {
-            aspect-ratio: 2 / 1;
-            flex: none;
-          }
-          .map-container {
-            aspect-ratio: 16 / 10;
-            flex: none;
-          }
-          .landing-headline { font-size: 1.6rem; }
+          .landing-right img { max-width: 200px; }
         }
       </style>`)}
+      {raw(`<noscript><style>.landing-left { grid-template-rows: auto auto 1fr auto 1fr auto 1fr !important; } .accordion-toggle { display: none; }</style></noscript>`)}
       <div class="landing">
-        <div class="landing-left">
-          <h1 class="landing-headline">Canadian builders,<br />linked together</h1>
-          <p class="landing-tagline">A webring for developers, designers, and founders sharing their work on the open web.</p>
+        <div class="landing-left" id="landing-left">
+          <a href="/" class="landing-title">webring.ca</a>
 
-          <div class="ring-widget">
-            {last ? <a href={`/prev/${last}`}>← prev</a> : <span>← prev</span>}
-            <span class="ring-dot">·</span>
-            <span>ring navigation</span>
-            <span class="ring-dot">·</span>
-            {first ? <a href={`/next/${first}`}>next →</a> : <span>next →</span>}
+          <button class="accordion-header" aria-expanded="true" aria-controls="accordion-about" data-index="0">
+            <span>About</span>
+            <span class="accordion-toggle" aria-hidden="true">
+              {raw('<svg viewBox="0 0 16 16"><line x1="3" y1="8" x2="13" y2="8" /></svg>')}
+            </span>
+          </button>
+          <div class="accordion-body" id="accordion-about">
+            <div class="accordion-body-inner">
+              <p class="accordion-about">webring.ca is a curated community of Canadian builders, designers, and creators. We connect and showcase the diverse talent across Canada, fostering collaboration and innovation in the digital space.</p>
+            </div>
           </div>
 
-          <div class="members-label">Members</div>
-          {active.length === 0 ? (
-            <p>No members yet.</p>
-          ) : (
-            <ul class="member-list">
-              {active.map((m) => (
-                <li>
-                  <a href={m.url} target="_blank" rel="noopener" class="member-list-name">{m.name}</a>
-                  <span class="member-list-meta">{m.city ?? ''}{m.city ? ' · ' : ''}{m.type}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div class="join-block">
-            <div class="join-block-text">
-              <strong>{active.length} member{active.length !== 1 ? 's' : ''}</strong> across Canada
+          <button class="accordion-header" aria-expanded="false" aria-controls="accordion-members" data-index="1">
+            <span>Members</span>
+            <span class="accordion-toggle" aria-hidden="true">
+              {raw('<svg viewBox="0 0 16 16"><line x1="3" y1="8" x2="13" y2="8" /><line x1="8" y1="3" x2="8" y2="13" /></svg>')}
+            </span>
+          </button>
+          <div class="accordion-body" id="accordion-members">
+            <div class="accordion-body-inner">
+              {active.length === 0 ? (
+                <p class="accordion-about">No members yet.</p>
+              ) : (
+                <ul class="member-list">
+                  {active.map((m) => (
+                    <li>
+                      <a href={m.url} target="_blank" rel="noopener noreferrer" class="member-list-name">{m.name}</a>
+                      <span class="member-list-meta">{m.city ?? ''}{m.city ? ' \u00b7 ' : ''}{m.type}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <a href="/join" class="join-block-link">Join the ring →</a>
+          </div>
+
+          <button class="accordion-header" aria-expanded="false" aria-controls="accordion-join" data-index="2">
+            <span>Join</span>
+            <span class="accordion-toggle" aria-hidden="true">
+              {raw('<svg viewBox="0 0 16 16"><line x1="3" y1="8" x2="13" y2="8" /><line x1="8" y1="3" x2="8" y2="13" /></svg>')}
+            </span>
+          </button>
+          <div class="accordion-body" id="accordion-join">
+            <div class="accordion-body-inner">
+              <p class="join-text">
+                <strong>{active.length} member{active.length !== 1 ? 's' : ''}</strong> across Canada.
+                Add your site to the ring and join a community of builders sharing their work on the open web.
+              </p>
+              <a href="/join" class="join-link">Join the ring {raw('&rarr;')}</a>
+            </div>
           </div>
         </div>
 
         <div class="landing-right">
-          <div class="flag-container">
-            <div class="flag-static">
-              <div class="flag-red" />
-              <div class="flag-white">
-                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M50 5 L53 20 L63 15 L58 28 L72 25 L62 35 L75 40 L60 42 L65 55 L55 48 L55 65 L50 58 L45 65 L45 48 L35 55 L40 42 L25 40 L38 35 L28 25 L42 28 L37 15 L47 20 Z" />
-                  <rect x="45" y="62" width="10" height="15" />
-                </svg>
-              </div>
-              <div class="flag-red" />
-            </div>
-            <canvas class="flag-canvas" id="flag-canvas" />
-          </div>
-
-          <div class="map-container">
-            <div class="map-grid" />
-            <span class="map-coord map-coord-tl">53.0°N 125.0°W</span>
-            <span class="map-coord map-coord-br">42.0°N 52.0°W</span>
-            <svg class="map-svg" viewBox={CANADA_VIEWBOX} preserveAspectRatio="xMidYMid meet">
-              <path class="map-outline" d={CANADA_PATH} />
-              {memberDots.map((m) => (
-                <>
-                  <circle class="map-glow" cx={m.svgX} cy={m.svgY} r={12} />
-                  <circle
-                    class="map-dot"
-                    cx={m.svgX}
-                    cy={m.svgY}
-                    r={5}
-                    data-name={m.name}
-                    data-city={m.city ?? ''}
-                    data-url={m.url}
-                  />
-                </>
-              ))}
-            </svg>
-            <div class="map-tooltip" id="map-tooltip" />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/d/d9/Flag_of_Canada_%28Pantone%29.svg" alt="Flag of Canada" width="300" height="150" />
+          <div class="drag-hint">
+            <span class="drag-hint-arrow">{raw('&uarr;')}</span>
+            <span>Drag Up</span>
           </div>
         </div>
       </div>
-      {raw(`<script>(function() {
-  var c = document.getElementById('flag-canvas');
-  if (!c || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var ctx = c.getContext('2d');
-  var W, H, cols = 40, rows = 25, pts = [], stiffness = 0.4, damping = 0.97;
-
-  function resize() {
-    var r = c.parentElement.getBoundingClientRect();
-    W = c.width = r.width * devicePixelRatio;
-    H = c.height = r.height * devicePixelRatio;
-    c.style.width = r.width + 'px';
-    c.style.height = r.height + 'px';
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-    W = r.width; H = r.height;
-    init();
-  }
-
-  function init() {
-    pts = [];
-    for (var y = 0; y <= rows; y++) {
-      for (var x = 0; x <= cols; x++) {
-        pts.push({
-          x: (x / cols) * W, y: (y / rows) * H,
-          ox: (x / cols) * W, oy: (y / rows) * H,
-          vx: 0, vy: 0,
-          pinned: x === 0
-        });
-      }
-    }
-  }
-
-  function step(t) {
-    var wind = Math.sin(t * 0.001) * 0.8 + Math.sin(t * 0.0023) * 0.4;
-    for (var i = 0; i < pts.length; i++) {
-      var p = pts[i];
-      if (p.pinned) continue;
-      var col = i % (cols + 1);
-      var fx = wind * (col / cols) * 1.2 + Math.sin(t * 0.002 + col * 0.3) * 0.3;
-      var fy = Math.sin(t * 0.0015 + col * 0.2) * 0.15;
-      p.vx = (p.vx + fx) * damping;
-      p.vy = (p.vy + fy) * damping;
-      p.x += p.vx;
-      p.y += p.vy;
-    }
-    for (var iter = 0; iter < 3; iter++) {
-      for (var y = 0; y <= rows; y++) {
-        for (var x = 0; x <= cols; x++) {
-          var i = y * (cols + 1) + x;
-          var p = pts[i];
-          if (x < cols) constrain(p, pts[i + 1], W / cols);
-          if (y < rows) constrain(p, pts[i + cols + 1], H / rows);
-        }
-      }
-    }
-  }
-
-  function constrain(a, b, rest) {
-    var dx = b.x - a.x, dy = b.y - a.y;
-    var dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
-    var diff = (dist - rest) / dist * stiffness;
-    if (!a.pinned) { a.x += dx * diff * 0.5; a.y += dy * diff * 0.5; }
-    if (!b.pinned) { b.x -= dx * diff * 0.5; b.y -= dy * diff * 0.5; }
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    var redEnd = 0.25, whiteEnd = 0.75;
-    for (var y = 0; y < rows; y++) {
-      for (var x = 0; x < cols; x++) {
-        var i = y * (cols + 1) + x;
-        var a = pts[i], b = pts[i+1], c2 = pts[i+cols+1], d = pts[i+cols+2];
-        var cx = (x + 0.5) / cols;
-        var color;
-        if (cx < redEnd || cx >= whiteEnd) color = '#d42c2c';
-        else color = '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.lineTo(d.x, d.y);
-        ctx.lineTo(c2.x, c2.y);
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
-      }
-    }
-    var leafCx = 0, leafCy = 0, count = 0;
-    for (var y2 = Math.floor(rows*0.2); y2 < Math.floor(rows*0.8); y2++) {
-      for (var x2 = Math.floor(cols*0.35); x2 < Math.floor(cols*0.65); x2++) {
-        var idx = y2*(cols+1)+x2;
-        leafCx += pts[idx].x; leafCy += pts[idx].y; count++;
-      }
-    }
-    leafCx /= count; leafCy /= count;
-    var leafSize = Math.min(W, H) * 0.22;
-    ctx.save();
-    ctx.translate(leafCx, leafCy);
-    ctx.fillStyle = '#d42c2c';
-    ctx.beginPath();
-    var s = leafSize / 50;
-    ctx.moveTo(0*s, -45*s);
-    ctx.lineTo(3*s, -25*s); ctx.lineTo(13*s, -30*s); ctx.lineTo(8*s, -17*s);
-    ctx.lineTo(22*s, -20*s); ctx.lineTo(12*s, -10*s); ctx.lineTo(25*s, -5*s);
-    ctx.lineTo(10*s, -3*s); ctx.lineTo(15*s, 10*s); ctx.lineTo(5*s, 3*s);
-    ctx.lineTo(5*s, 20*s); ctx.lineTo(0*s, 13*s); ctx.lineTo(-5*s, 20*s);
-    ctx.lineTo(-5*s, 3*s); ctx.lineTo(-15*s, 10*s); ctx.lineTo(-10*s, -3*s);
-    ctx.lineTo(-25*s, -5*s); ctx.lineTo(-12*s, -10*s); ctx.lineTo(-22*s, -20*s);
-    ctx.lineTo(-8*s, -17*s); ctx.lineTo(-13*s, -30*s); ctx.lineTo(-3*s, -25*s);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillRect(-2.5*s, 15*s, 5*s, 12*s);
-    ctx.restore();
-  }
-
-  function loop(t) {
-    step(t);
-    draw();
-    requestAnimationFrame(loop);
-  }
-
-  resize();
-  window.addEventListener('resize', resize);
-  requestAnimationFrame(loop);
-})()</script>`)}
       {raw(`<script>
 (function() {
-  var tooltip = document.getElementById('map-tooltip');
-  var container = document.querySelector('.map-container');
-  if (!tooltip || !container) return;
-  var dots = container.querySelectorAll('.map-dot');
-  dots.forEach(function(dot) {
-    dot.addEventListener('mouseenter', function(e) {
-      var name = dot.getAttribute('data-name');
-      var city = dot.getAttribute('data-city');
-      tooltip.textContent = name + (city ? ' \\u00b7 ' + city : '');
-      tooltip.classList.add('visible');
-    });
-    dot.addEventListener('mousemove', function(e) {
-      var rect = container.getBoundingClientRect();
-      tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
-      tooltip.style.top = (e.clientY - rect.top - 30) + 'px';
-    });
-    dot.addEventListener('mouseleave', function() {
-      tooltip.classList.remove('visible');
-    });
-    dot.addEventListener('click', function() {
-      var url = dot.getAttribute('data-url');
-      if (url) window.open(url, '_blank', 'noopener');
+  var MINUS = '<svg viewBox="0 0 16 16"><line x1="3" y1="8" x2="13" y2="8" /></svg>';
+  var PLUS = '<svg viewBox="0 0 16 16"><line x1="3" y1="8" x2="13" y2="8" /><line x1="8" y1="3" x2="8" y2="13" /></svg>';
+  var state = [true, false, false];
+  var left = document.getElementById('landing-left');
+  var headers = left.querySelectorAll('.accordion-header');
+
+  function updateGrid() {
+    var rows = 'auto';
+    for (var i = 0; i < state.length; i++) {
+      rows += ' auto ' + (state[i] ? '1fr' : '0fr');
+    }
+    left.style.gridTemplateRows = rows;
+  }
+
+  headers.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var i = parseInt(btn.getAttribute('data-index'), 10);
+      var opening = !state[i];
+      if (opening) {
+        for (var j = 0; j < state.length; j++) {
+          if (j !== i && state[j]) {
+            state[j] = false;
+            var otherBtn = headers[j];
+            otherBtn.querySelector('.accordion-toggle').innerHTML = PLUS;
+            otherBtn.setAttribute('aria-expanded', 'false');
+          }
+        }
+      }
+      state[i] = opening;
+      var icon = btn.querySelector('.accordion-toggle');
+      icon.innerHTML = opening ? MINUS : PLUS;
+      btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+      updateGrid();
     });
   });
 })();
