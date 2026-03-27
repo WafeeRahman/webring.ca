@@ -1,8 +1,25 @@
 import type { HealthStatus } from '../types'
 import { getMembers, setMembers, getHealthStatus, setHealthStatus } from '../data'
 
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0',
+]
+
+export function detectWidget(html: string): boolean {
+  const stripped = html.toLowerCase().replace(/<!--[\s\S]*?-->/g, '')
+  const hasMarker = stripped.includes('data-webring="ca"') || stripped.includes('webring.ca/embed.js')
+  const hasPrev = /href=["'][^"']*webring\.ca\/prev\//.test(stripped)
+  const hasNext = /href=["'][^"']*webring\.ca\/next\//.test(stripped)
+  return hasMarker && hasPrev && hasNext
+}
+
 export async function runHealthCheck(kv: KVNamespace): Promise<void> {
   const members = await getMembers(kv)
+  const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
 
   const prevStatuses = await Promise.all(
     members.map((m) => getHealthStatus(kv, m.slug))
@@ -14,11 +31,10 @@ export async function runHealthCheck(kv: KVNamespace): Promise<void> {
       try {
         const res = await fetch(member.url, {
           signal: AbortSignal.timeout(5000),
-          headers: { 'User-Agent': 'webring.ca health check' },
+          headers: { 'User-Agent': ua },
         })
         const body = await res.text()
-        const lower = body.toLowerCase()
-        const hasWidget = lower.includes('data-webring="ca"') || lower.includes('webring.ca/embed.js')
+        const hasWidget = detectWidget(body)
 
         if (res.ok && hasWidget) {
           return {
