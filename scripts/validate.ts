@@ -84,44 +84,54 @@ for (const member of newMembers) {
 
   write(`### ${safeName} (${safeUrl})\n`)
 
+  // --- Schema checks ---
+  write('**Schema**')
+
   if (!member.slug || !member.name || !member.url || !member.type) {
-    results.push('Missing required fields (slug, name, url, type)')
+    write('- FAIL: Missing required fields. Every entry needs slug, name, url, and type.')
     memberFailed = true
+  } else {
+    write('- PASS: All required fields present (slug, name, url, type)')
   }
 
   if (member.slug && !/^[a-z0-9-]+$/.test(member.slug)) {
-    results.push('Slug must be lowercase alphanumeric + hyphens only')
+    write(`- FAIL: slug "${sanitizeMarkdown(member.slug)}" must be lowercase alphanumeric and hyphens only (e.g. "jane-doe")`)
     memberFailed = true
+  } else if (member.slug) {
+    write(`- PASS: slug "${sanitizeMarkdown(member.slug)}" is valid`)
   }
 
   if (member.url && !member.url.startsWith('https://')) {
-    results.push('URL must use HTTPS')
+    write(`- FAIL: URL must use HTTPS. Got "${safeUrl}"`)
     memberFailed = true
+  } else if (member.url) {
+    write('- PASS: URL uses HTTPS')
   }
 
   if (member.type && !VALID_TYPES.includes(member.type)) {
-    results.push(`Type must be one of: ${VALID_TYPES.join(', ')}`)
+    write(`- FAIL: type "${sanitizeMarkdown(member.type)}" is not valid. Must be one of: ${VALID_TYPES.join(', ')}`)
     memberFailed = true
+  } else if (member.type) {
+    write(`- PASS: type "${sanitizeMarkdown(member.type)}" is valid`)
   }
 
   if (member.slug && allSlugs.has(member.slug)) {
-    results.push('Duplicate slug')
+    write(`- FAIL: slug "${sanitizeMarkdown(member.slug)}" is already taken by another member`)
     memberFailed = true
   }
 
   if (member.url && allUrls.has(member.url)) {
-    results.push('Duplicate URL')
+    write(`- FAIL: URL "${safeUrl}" is already registered to another member`)
     memberFailed = true
   }
 
   if (!appendedCorrectly) {
-    results.push('New entries must be appended to the bottom of the array')
+    write('- FAIL: New entries must be appended to the bottom of the members array, not inserted in the middle')
     memberFailed = true
   }
 
-  if (!memberFailed) {
-    results.push('Schema valid')
-  }
+  // --- Site reachability ---
+  write('\n**Site check**')
 
   try {
     const res = await fetch(member.url, {
@@ -129,29 +139,30 @@ for (const member of newMembers) {
       headers: { 'User-Agent': 'webring.ca validator' },
     })
     if (res.ok) {
-      results.push(`Site reachable (HTTP ${res.status})`)
+      write(`- PASS: ${safeUrl} responded with HTTP ${res.status}`)
 
       const body = await res.text()
       const lower = body.toLowerCase()
-      if (!lower.includes('data-webring="ca"') && !lower.includes('webring.ca/embed.js')) {
-        results.push('Widget not detected yet — add the widget after merge')
+      if (lower.includes('data-webring="ca"') || lower.includes('webring.ca/embed.js')) {
+        write('- PASS: Webring widget detected')
+      } else {
+        write('- INFO: Widget not detected yet. Install the widget before or after merge — see https://github.com/stanleypangg/webring.ca#add-the-widget')
       }
     } else {
-      results.push(`Site returned HTTP ${res.status}`)
+      write(`- FAIL: ${safeUrl} returned HTTP ${res.status}. The site must return a 2xx status code.`)
       memberFailed = true
     }
   } catch {
-    results.push('Site unreachable (timed out or connection failed)')
+    write(`- FAIL: ${safeUrl} is unreachable (timed out after 10s or connection refused). Make sure your site is live and publicly accessible.`)
     memberFailed = true
   }
 
-  for (const r of results) write(r)
-
+  // --- Result ---
   if (memberFailed) {
-    write('\n**Result: Please fix the issues above**')
+    write('\n**Result: Not ready to merge.** Fix the issues marked FAIL above and push again.')
     hasFailure = true
   } else {
-    write('\n**Result: Ready to merge** (pending widget installation)')
+    write('\n**Result: Ready to merge.**')
   }
 
   allSlugs.add(member.slug)
