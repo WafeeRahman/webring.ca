@@ -85,4 +85,32 @@ describe('landing route', () => {
     expect(html).toContain('aria-controls="join-body"')
     expect(html).toContain('Join the ring')
   })
+
+  it('renders tab bar with Map and Discover tabs', async () => {
+    const app = await makeApp()
+    const res = await app.request('/', {}, { WEBRING: kv })
+    const html = await res.text()
+
+    expect(html).toContain('class="tab-bar"')
+    expect(html).toContain('data-tab="map"')
+    expect(html).toContain('data-tab="discover"')
+  })
+
+  it('renders Map tab panel with Canada map', async () => {
+    const app = await makeApp()
+    const res = await app.request('/', {}, { WEBRING: kv })
+    const html = await res.text()
+
+    expect(html).toContain('id="tab-panel-map"')
+    expect(html).toContain('class="canada-map"')
+  })
+
+  it('renders Discover tab panel with member data script', async () => {
+    const app = await makeApp()
+    const res = await app.request('/', {}, { WEBRING: kv })
+    const html = await res.text()
+
+    expect(html).toContain('id="tab-panel-discover"')
+    expect(html).toContain('__discoverMembers')
+  })
 })
