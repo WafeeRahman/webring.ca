@@ -199,6 +199,38 @@ async function main(): Promise<void> {
     resolve(import.meta.dirname, '..', 'src', 'lib', 'canada-regions.json'),
     `${JSON.stringify(regions, null, 2)}\n`
   )
+
+  // Pre-compute SVG paths + projection params so the Worker never imports raw GeoJSON
+  const projection = createProjection(outline)
+  const path = geoPath(projection)
+
+  const outlinePath = path(outline.features[0]) ?? ''
+  const regionPaths = (regions.features as Array<Feature>)
+    .map((feature) => ({
+      id: String(feature.properties.id),
+      name: String(feature.properties.name),
+      postal: String(feature.properties.postal),
+      d: path(feature) ?? '',
+    }))
+    .filter((r) => r.d.length > 0)
+
+  const precomputed = {
+    viewBox: `0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`,
+    outlinePath,
+    regionPaths,
+    projection: {
+      parallels: [49, 77],
+      rotate: [96, 0],
+      center: [0, 62],
+      scale: projection.scale(),
+      translate: projection.translate(),
+    },
+  }
+
+  writeFileSync(
+    resolve(import.meta.dirname, '..', 'src', 'lib', 'canada-map-data.json'),
+    `${JSON.stringify(precomputed)}\n`
+  )
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

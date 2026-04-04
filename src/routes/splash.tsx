@@ -3,6 +3,7 @@ import { raw } from 'hono/html'
 import type { Bindings, Member } from '../types'
 import { getActiveMembers } from '../data'
 import { CANADA_VIEWBOX, CANADA_OUTLINE_PATH, CANADA_REGION_PATHS, projectToSvg } from '../lib/canada-map'
+import { getMemberCoordinates } from '../utils/member-coords'
 
 const PANEL_NAMES = ['Splash', 'Map', 'Members', 'Ring + Stats', 'Join']
 
@@ -22,12 +23,13 @@ function SplashContent({ active }: { active: Member[] }) {
           viewBox={CANADA_VIEWBOX}
           xmlns="http://www.w3.org/2000/svg"
           role="img"
-          aria-label={`Map of Canada showing ${active.filter(m => m.lat != null).length} member locations`}
+          aria-label={`Map of Canada showing ${active.filter(m => getMemberCoordinates(m) != null).length} member locations`}
         >
           <path d={CANADA_OUTLINE_PATH} class="splash-outline" />
           {active.map((m) => {
-            if (m.lat == null || m.lng == null) return null
-            const { x, y } = projectToSvg(m.lat, m.lng)
+            const coords = getMemberCoordinates(m)
+            if (!coords) return null
+            const { x, y } = projectToSvg(coords.lat, coords.lng)
             return (
               <circle cx={x} cy={y} r="8" class="splash-dot">
                 <title>{m.name}{m.city ? ` — ${m.city}` : ''}</title>
@@ -63,11 +65,11 @@ function generateArcPath(x1: number, y1: number, x2: number, y2: number): string
 }
 
 function MapContent({ active }: { active: Member[] }) {
-  const membersWithCoords = active.filter(m => m.lat != null && m.lng != null)
-  const dots = membersWithCoords.map(m => ({
-    ...m,
-    ...projectToSvg(m.lat!, m.lng!),
-  }))
+  const membersWithCoords = active.filter(m => getMemberCoordinates(m) != null)
+  const dots = membersWithCoords.map(m => {
+    const coords = getMemberCoordinates(m)!
+    return { ...m, ...projectToSvg(coords.lat, coords.lng) }
+  })
 
   // Generate arcs between consecutive members (the ring path)
   const arcs: string[] = []
